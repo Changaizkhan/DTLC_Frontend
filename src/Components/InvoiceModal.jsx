@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useShipment } from '../hooks/api';
 import { getApiErrorMessage } from '../api/errors';
 import { normalizeInvoiceData } from '../lib/invoice';
+import ShipmentMetaBanner from './ShipmentMetaBanner';
 
 function Spinner({ label = 'Loading...' }) {
   return (
@@ -68,6 +69,13 @@ export default function InvoiceModal({ shipmentId }) {
           Print
         </button>
       </div>
+
+      <ShipmentMetaBanner
+        status={invoice.status}
+        currentLocation={invoice.currentLocation}
+        shipmentNumber={invoice.shipmentNumber || shipmentId}
+        className="mb-5"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="border border-gray-200 rounded-xl p-4">

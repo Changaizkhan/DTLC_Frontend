@@ -1,3 +1,5 @@
+import { validateShipmentForm as validateBySchema } from './schema';
+
 export const emptyPackageRow = () => ({
   id: Date.now() + Math.random(),
   quantity: 1,
@@ -121,6 +123,14 @@ export function mapShipmentToFormState(shipment) {
       : [emptyPackageRow()];
 
   return { shipper, receiver, details, packages };
+}
+
+/**
+ * @param {{ shipper: typeof initialShipper, receiver: typeof initialReceiver, details: typeof initialDetails, packages: ReturnType<typeof emptyPackageRow>[] }} state
+ * @returns {Record<string, string>}
+ */
+export function validateShipmentForm(state) {
+  return validateBySchema(state);
 }
 
 export function formStateToCreatePayload({ shipper, receiver, details, packages }) {

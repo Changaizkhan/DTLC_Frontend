@@ -26,10 +26,22 @@ export async function createShipment(payload) {
 }
 
 /**
- * @param {{ id: string, status: string }} payload
+ * @param {{ id: string, status: string, currentLocation?: string }} payload
  */
-export async function updateShipmentStatus({ id, status }) {
-  const { data } = await http.patch(endpoints.shipments.updateStatus(id), { status });
+export async function updateShipmentStatus({ id, status, currentLocation }) {
+  const body = { status };
+  if (currentLocation?.trim()) body.currentLocation = currentLocation.trim();
+  const { data } = await http.patch(endpoints.shipments.updateStatus(id), body);
+  return data;
+}
+
+/**
+ * @param {{ id: string, currentLocation: string }} payload
+ */
+export async function updateShipmentCurrentLocation({ id, currentLocation }) {
+  const { data } = await http.patch(endpoints.shipments.currentLocation(id), {
+    currentLocation: currentLocation.trim(),
+  });
   return data;
 }
 

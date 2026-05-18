@@ -4,6 +4,7 @@ export {
   useShipment,
   useCreateShipment,
   useUpdateShipmentStatus,
+  useUpdateShipmentCurrentLocation,
   useUpdateShipment,
   useDeleteShipment,
 } from './useShipments';

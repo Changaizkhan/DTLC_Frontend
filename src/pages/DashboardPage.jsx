@@ -5,9 +5,10 @@ import {
   useShipment,
   useShipmentsList,
   useUpdateShipment,
+  useUpdateShipmentCurrentLocation,
   useUpdateShipmentStatus,
 } from '../hooks/api';
-import { getApiErrorMessage } from '../api/errors';
+import { getApiErrorMessage, getApiFieldErrors } from '../api/errors';
 import Modal from '../Components/Modal';
 import ShipmentForm from '../Components/ShipmentForm';
 import InvoiceModal from '../Components/InvoiceModal';
@@ -93,8 +94,13 @@ const statCards = [
 export default function DashboardPage() {
   const navigate = useNavigate();
   const statusMutation = useUpdateShipmentStatus();
+  const locationMutation = useUpdateShipmentCurrentLocation();
   const updateShipmentMutation = useUpdateShipment();
   const deleteShipmentMutation = useDeleteShipment();
+  const [locationDrafts, setLocationDrafts] = useState({});
+  const [locationNotice, setLocationNotice] = useState(
+    /** @type {{ type: 'success' | 'error', text: string } | null} */ (null)
+  );
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -106,6 +112,7 @@ export default function DashboardPage() {
   const [modalMode, setModalMode] = useState(/** @type {'view'|'edit'} */ ('view'));
   const [activeShipmentId, setActiveShipmentId] = useState('');
   const [modalSuccessMsg, setModalSuccessMsg] = useState('');
+  const [modalFieldErrors, setModalFieldErrors] = useState({});
 
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceShipmentId, setInvoiceShipmentId] = useState('');
@@ -128,6 +135,7 @@ export default function DashboardPage() {
       dest: s.receiver?.address ?? s.destination ?? '',
       date: (s.createdAt ?? s.pickupDate ?? s.date ?? '').slice(0, 10),
       status: s.status ?? 'Pending',
+      currentLocation: s.currentLocation ?? '',
     }));
   }, [shipmentsData]);
 
@@ -195,6 +203,7 @@ export default function DashboardPage() {
     setOpenModal(false);
     setActiveShipmentId('');
     setModalSuccessMsg('');
+    setModalFieldErrors({});
   }, []);
 
   const closeInvoice = useCallback(() => {
@@ -206,6 +215,7 @@ export default function DashboardPage() {
     setModalMode('view');
     setActiveShipmentId(shipmentNumber);
     setModalSuccessMsg('');
+    setModalFieldErrors({});
     setOpenModal(true);
   };
 
@@ -213,11 +223,13 @@ export default function DashboardPage() {
     setModalMode('edit');
     setActiveShipmentId(shipmentNumber);
     setModalSuccessMsg('');
+    setModalFieldErrors({});
     setOpenModal(true);
   };
 
   const handleEditSubmit = (payload) => {
     setModalSuccessMsg('');
+    setModalFieldErrors({});
     updateShipmentMutation.mutate(
       { id: activeShipmentId, payload },
       {
@@ -225,27 +237,62 @@ export default function DashboardPage() {
           setModalSuccessMsg('Shipment updated successfully!');
           window.setTimeout(() => closeModal(), 900);
         },
-        onError: (err) => alert(getApiErrorMessage(err)),
+        onError: (err) => setModalFieldErrors(getApiFieldErrors(err)),
       }
     );
   };
 
+  const getLocationDraft = (id, fallback = '') =>
+    locationDrafts[id] ?? fallback;
+
+  const setLocationDraft = (id, value) => {
+    setLocationDrafts((prev) => ({ ...prev, [id]: value }));
+  };
+
   const handleStatusChange = (id, newStatus) => {
+    const currentLocation = getLocationDraft(id).trim();
+    setLocationNotice(null);
     statusMutation.mutate(
-      { id, status: newStatus },
+      { id, status: newStatus, ...(currentLocation ? { currentLocation } : {}) },
       {
-        onError: (err) => alert(getApiErrorMessage(err)),
+        onSuccess: () => {
+          if (currentLocation) {
+            setLocationDrafts((prev) => ({ ...prev, [id]: '' }));
+            setLocationNotice({
+              type: 'success',
+              text: `Status and location updated for ${id}.`,
+            });
+          }
+        },
+        onError: (err) =>
+          setLocationNotice({ type: 'error', text: getApiErrorMessage(err) }),
+      }
+    );
+  };
+
+  const handleLocationEnter = (id) => {
+    const currentLocation = getLocationDraft(id).trim();
+    if (!currentLocation) return;
+
+    setLocationNotice(null);
+    locationMutation.mutate(
+      { id, currentLocation },
+      {
+        onSuccess: () => {
+          setLocationDrafts((prev) => ({ ...prev, [id]: '' }));
+          setLocationNotice({
+            type: 'success',
+            text: `Current location saved for ${id}.`,
+          });
+        },
+        onError: (err) =>
+          setLocationNotice({ type: 'error', text: getApiErrorMessage(err) }),
       }
     );
   };
   const handleDelete = (id) => {
     if (confirm(`Are you sure you want to delete ${id}?`)) {
-      deleteShipmentMutation.mutate(id, {
-        onSuccess: () => {
-          alert(`Deleted ${id}`);
-        },
-        onError: (err) => alert(getApiErrorMessage(err)),
-      });
+      deleteShipmentMutation.mutate(id);
     }
   };
 
@@ -287,15 +334,23 @@ export default function DashboardPage() {
             shipment={activeShipment}
             onSubmit={modalMode === 'edit' ? handleEditSubmit : () => {}}
             isSubmitting={updateShipmentMutation.isPending}
-            submitError={
-              updateShipmentMutation.isError
-                ? getApiErrorMessage(updateShipmentMutation.error)
-                : undefined
-            }
+            serverFieldErrors={modalFieldErrors}
             submitSuccess={modalSuccessMsg || undefined}
           />
         )}
       </Modal>
+
+      {locationNotice ? (
+        <div
+          className={`mb-4 rounded-xl border px-4 py-2.5 text-xs font-medium ${
+            locationNotice.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-600'
+              : 'bg-green-50 border-green-200 text-green-700'
+          }`}
+        >
+          {locationNotice.text}
+        </div>
+      ) : null}
 
       {/* STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 fade-in-2">
@@ -427,7 +482,7 @@ export default function DashboardPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-[#0f1923] text-white text-xs uppercase tracking-wider">
-                  {['Shipment ID', 'Receiver Name', 'Destination', 'Date', 'Status'].map((header, idx) => (
+                  {['Shipment ID', 'Receiver Name', 'Destination', 'Date', 'Status', 'Current Location'].map((header, idx) => (
                     <th
                       key={header}
                       onClick={() => handleSort(idx)}
@@ -457,8 +512,14 @@ export default function DashboardPage() {
                         {s.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-600 max-w-[140px]">
+                      <span className="line-clamp-2" title={s.currentLocation || 'Not set'}>
+                        {s.currentLocation || <span className="text-gray-400 italic">Not set</span>}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-col gap-2 min-w-[220px]">
+                      <div className="flex items-center gap-1.5 flex-nowrap">
                         {/* View */}
                         <button
                           onClick={() => handleView(s.displayId)}
@@ -498,16 +559,31 @@ export default function DashboardPage() {
                             <option key={st} value={st}>{st}</option>
                           ))}
                         </select>
-                        {/* Delete */}
                         <button
                           onClick={() => handleDelete(s.displayId)}
                           title="Delete"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-all duration-150"
+                          className="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-all duration-150"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
+                      </div>
+                        <input
+                          type="text"
+                          placeholder="Current location — press Enter"
+                          title="Press Enter to save current location"
+                          value={getLocationDraft(s.displayId, s.currentLocation)}
+                          onChange={(e) => setLocationDraft(s.displayId, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleLocationEnter(s.displayId);
+                            }
+                          }}
+                          disabled={locationMutation.isPending}
+                          className="h-7 w-full text-[11px] rounded-lg border border-gray-200 px-2 text-gray-700 placeholder:text-gray-400 focus:border-red-400 focus:ring-1 focus:ring-red-200 outline-none"
+                        />
                       </div>
                     </td>
                     <td className="px-4 py-3">

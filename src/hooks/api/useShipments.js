@@ -7,6 +7,7 @@ import {
   fetchShipments,
   updateShipment,
   updateShipmentStatus,
+  updateShipmentCurrentLocation,
 } from '../../services/shipmentService';
 
 /**
@@ -44,6 +45,16 @@ export function useUpdateShipmentStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updateShipmentStatus,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shipments.all });
+    },
+  });
+}
+
+export function useUpdateShipmentCurrentLocation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateShipmentCurrentLocation,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.shipments.all });
     },

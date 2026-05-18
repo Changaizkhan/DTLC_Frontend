@@ -6,7 +6,17 @@ import {
   initialReceiver,
   initialShipper,
   mapShipmentToFormState,
+  validateShipmentForm,
 } from '../lib/shipmentForm';
+import {
+  DETAILS_LAYOUT,
+  PACKAGE_COLUMNS,
+  PARTY_SECTIONS,
+  sanitizeByKey,
+} from '../lib/schema';
+import { SchemaFormField, ErrorText } from './SchemaFormField';
+import ShipmentMetaBanner from './ShipmentMetaBanner';
+import { getShipmentMeta } from '../lib/shipmentMeta';
 
 /**
  * @param {{
@@ -14,7 +24,7 @@ import {
  *  shipment?: any,
  *  onSubmit: (payload: any) => void,
  *  isSubmitting?: boolean,
- *  submitError?: string,
+ *  serverFieldErrors?: Record<string, string>,
  *  submitSuccess?: string,
  * }} props
  */
@@ -23,11 +33,16 @@ export default function ShipmentForm({
   shipment,
   onSubmit,
   isSubmitting = false,
-  submitError,
+  serverFieldErrors = {},
   submitSuccess,
 }) {
   const isReadOnly = mode === 'view';
   const submitLabel = mode === 'edit' ? 'Update Shipment' : 'Save Shipment';
+
+  const shipmentMeta = useMemo(
+    () => (shipment ? getShipmentMeta(shipment) : null),
+    [shipment]
+  );
 
   const initial = useMemo(() => {
     const normalized =
@@ -45,33 +60,65 @@ export default function ShipmentForm({
   const [receiver, setReceiver] = useState(initial.receiver);
   const [details, setDetails] = useState(initial.details);
   const [packages, setPackages] = useState(initial.packages);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     setShipper(initial.shipper);
     setReceiver(initial.receiver);
     setDetails(initial.details);
     setPackages(initial.packages);
+    setFieldErrors({});
   }, [initial]);
 
-  const updateShipper = (field, value) =>
-    setShipper((p) => ({ ...p, [field]: value }));
-  const updateReceiver = (field, value) =>
-    setReceiver((p) => ({ ...p, [field]: value }));
-  const updateDetails = (field, value) =>
-    setDetails((p) => ({ ...p, [field]: value }));
+  useEffect(() => {
+    if (Object.keys(serverFieldErrors).length) {
+      setFieldErrors((prev) => ({ ...prev, ...serverFieldErrors }));
+    }
+  }, [serverFieldErrors]);
 
-  const addPackageRow = () =>
-    setPackages((prev) => [...prev, emptyPackageRow()]);
+  const err = (key) => fieldErrors[key];
+
+  const clearError = (key) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const setPartyField = (party, field, raw) => {
+    const key = `${party}.${field}`;
+    clearError(key);
+    const value = sanitizeByKey(key, raw);
+    if (party === 'shipper') setShipper((p) => ({ ...p, [field]: value }));
+    else setReceiver((p) => ({ ...p, [field]: value }));
+  };
+
+  const setDetailField = (field, raw) => {
+    const key = `details.${field}`;
+    clearError(key);
+    setDetails((p) => ({ ...p, [field]: sanitizeByKey(key, raw) }));
+  };
+
+  const addPackageRow = () => setPackages((prev) => [...prev, emptyPackageRow()]);
 
   const deletePackageRow = (id) => {
     if (packages.length <= 1) {
-      alert('At least one package row is required.');
+      setFieldErrors((prev) => ({
+        ...prev,
+        packages: 'At least one package row is required.',
+      }));
       return;
     }
+    clearError('packages');
     setPackages((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const updatePackage = (id, field, value) => {
+  const setPackageField = (id, field, raw, index) => {
+    clearError(`packages.${index}.${field}`);
+    const key = `packages.${field}`;
+    const value = sanitizeByKey(key, raw);
     setPackages((prev) =>
       prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
     );
@@ -80,125 +127,74 @@ export default function ShipmentForm({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isReadOnly) return;
+
+    const validation = validateShipmentForm({
+      shipper,
+      receiver,
+      details,
+      packages,
+    });
+    if (Object.keys(validation).length) {
+      setFieldErrors(validation);
+      return;
+    }
+
+    setFieldErrors({});
     onSubmit(formStateToCreatePayload({ shipper, receiver, details, packages }));
   };
 
+  const packageInputClass = {
+    quantity: 'w-16 text-center',
+    pieceType: 'w-28',
+    description: 'w-32',
+    lengthCm: 'w-20 text-center',
+    widthCm: 'w-20 text-center',
+    heightCm: 'w-20 text-center',
+    weightKg: 'w-20 text-center',
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col xl:flex-row gap-5">
+    <form noValidate onSubmit={handleSubmit} className="flex flex-col xl:flex-row gap-5">
+      {err('_form') ? (
+        <div className="xl:col-span-full w-full bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-600 font-medium">
+          {err('_form')}
+        </div>
+      ) : null}
+
       <div className="flex-1 min-w-0 space-y-4">
+        {(mode === 'view' || mode === 'edit') && shipmentMeta ? (
+          <ShipmentMetaBanner
+            status={shipmentMeta.status}
+            currentLocation={shipmentMeta.currentLocation}
+            shipmentNumber={shipmentMeta.shipmentNumber}
+          />
+        ) : null}
         <div className="section-card">
           <div className="section-header">
-            <span className="text-sm font-semibold text-gray-700">
-              Shipment Details
-            </span>
+            <span className="text-sm font-semibold text-gray-700">Shipment Details</span>
           </div>
           <div className="p-4 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest pb-1 border-b border-red-100">
-                  Shipper Details
-                </h3>
-                <div>
-                  <label className="label">Shipper Name</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter shipper name"
-                    value={shipper.name}
-                    onChange={(e) => updateShipper('name', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
+              {PARTY_SECTIONS.map((section) => (
+                <div key={section.prefix} className="space-y-3">
+                  <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest pb-1 border-b border-red-100">
+                    {section.title}
+                  </h3>
+                  {section.fields.map((field) => {
+                    const key = `${section.prefix}.${field}`;
+                    return (
+                      <SchemaFormField
+                        key={key}
+                        fieldKey={key}
+                        value={section.prefix === 'shipper' ? shipper[field] : receiver[field]}
+                        onChange={(v) => setPartyField(section.prefix, field, v)}
+                        error={err(key)}
+                        disabled={isReadOnly}
+                      />
+                    );
+                  })}
                 </div>
-                <div>
-                  <label className="label">Phone Number</label>
-                  <input
-                    type="tel"
-                    className="field"
-                    placeholder="Enter phone number"
-                    value={shipper.phone}
-                    onChange={(e) => updateShipper('phone', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Address</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter address"
-                    value={shipper.address}
-                    onChange={(e) => updateShipper('address', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Email</label>
-                  <input
-                    type="email"
-                    className="field"
-                    placeholder="Enter email address"
-                    value={shipper.email}
-                    onChange={(e) => updateShipper('email', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest pb-1 border-b border-red-100">
-                  Receiver Details
-                </h3>
-                <div>
-                  <label className="label">Receiver Name</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter receiver name"
-                    value={receiver.name}
-                    onChange={(e) => updateReceiver('name', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Phone Number</label>
-                  <input
-                    type="tel"
-                    className="field"
-                    placeholder="Enter phone number"
-                    value={receiver.phone}
-                    onChange={(e) => updateReceiver('phone', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Address</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter address"
-                    value={receiver.address}
-                    onChange={(e) => updateReceiver('address', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Email</label>
-                  <input
-                    type="email"
-                    className="field"
-                    placeholder="Enter email address"
-                    value={receiver.email}
-                    onChange={(e) => updateReceiver('email', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-              </div>
+              ))}
             </div>
 
             <div>
@@ -206,258 +202,71 @@ export default function ShipmentForm({
                 Shipment Details
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-                <div className="sm:col-span-2">
-                  <label className="label">Type of Shipment</label>
-                  <select
-                    className="field"
-                    value={details.typeOfShipment}
-                    onChange={(e) => updateDetails('typeOfShipment', e.target.value)}
-                    required
-                    disabled={isReadOnly}
-                  >
-                    <option value="">-- Select One --</option>
-                    <option value="Express">Express</option>
-                    <option value="Air Freight">Air Freight</option>
-                    <option value="International Shipping">International Shipping</option>
-                    <option value="Truck Load">Truck Load</option>
-                    <option value="Van Move">Van Move</option>
-                  </select>
-                </div>
+                {DETAILS_LAYOUT.map((item) => {
+                  if (item.type === 'packagesCount') {
+                    return (
+                      <div key="packages-count">
+                        <label className="label">Packages</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="field bg-gray-50 cursor-not-allowed"
+                          readOnly
+                          title="Auto: same as the number of package rows in the table below"
+                          value={packages.length}
+                        />
+                      </div>
+                    );
+                  }
 
-                <div>
-                  <label className="label">Weight (kg)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="field"
-                    placeholder="e.g. 5.50"
-                    value={details.shipmentWeightKg || ''}
-                    onChange={(e) => updateDetails('shipmentWeightKg', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Courier</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter courier name"
-                    value={details.courier}
-                    onChange={(e) => updateDetails('courier', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
+                  if (item.type === 'freightRow') {
+                    return (
+                      <div key="freight-row">
+                        <label className="label">Total Freight</label>
+                        <div className="flex gap-2 min-w-0">
+                          <SchemaFormField
+                            fieldKey="details.totalFreightCurrency"
+                            value={details.totalFreightCurrency}
+                            onChange={(v) => setDetailField('totalFreightCurrency', v)}
+                            error={err('details.totalFreightCurrency')}
+                            disabled={isReadOnly}
+                            hideLabel
+                            inputClassName="w-24 shrink-0 !w-24"
+                            className="shrink-0"
+                          />
+                          <SchemaFormField
+                            fieldKey="details.totalFreightAmount"
+                            value={details.totalFreightAmount}
+                            onChange={(v) => setDetailField('totalFreightAmount', v)}
+                            error={err('details.totalFreightAmount')}
+                            disabled={isReadOnly}
+                            hideLabel
+                            inputClassName="field-flex-1"
+                            className="flex-1 min-w-0"
+                            placeholder="Amount"
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
 
-                <div>
-                  <label className="label">Packages</label>
-                  <input
-                    type="number"
-                    className="field bg-gray-50 cursor-not-allowed"
-                    readOnly
-                    title="Auto: same as the number of package rows in the table below"
-                    min={1}
-                    value={packages.length}
-                  />
-                </div>
-                <div>
-                  <label className="label">Mode</label>
-                  <select
-                    className="field"
-                    value={details.mode}
-                    onChange={(e) => updateDetails('mode', e.target.value)}
-                    disabled={isReadOnly}
-                  >
-                    <option value="">-- Select One --</option>
-                    <option value="Air">Air</option>
-                    <option value="Sea Transport">Sea Transport</option>
-                    <option value="Land Shipping">Land Shipping</option>
-                    <option value="Air Freight">Air Freight</option>
-                  </select>
-                </div>
+                  const field = item.key.replace('details.', '');
+                  const col =
+                    item.colSpan === 2 ? 'sm:col-span-2' : undefined;
 
-                <div>
-                  <label className="label">Product</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter product name"
-                    value={details.product}
-                    onChange={(e) => updateDetails('product', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Quantity</label>
-                  <input
-                    type="number"
-                    className="field"
-                    placeholder="Enter quantity"
-                    min="1"
-                    value={details.quantity || ''}
-                    onChange={(e) => updateDetails('quantity', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-
-                <div>
-                  <label className="label">Payment Method</label>
-                  <select
-                    className="field"
-                    value={details.paymentMethod}
-                    onChange={(e) =>
-                      updateDetails('paymentMethod', e.target.value)
-                    }
-                    disabled={isReadOnly}
-                  >
-                    <option value="">-- Select One --</option>
-                    <option value="COD">COD</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Cheque">Cheque</option>
-                    <option value="Bank Transfer">Bank Transfer</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Total Freight</label>
-                  <div className="flex gap-2 min-w-0">
-                    <select
-                      className="field w-24 shrink-0 !w-24"
-                      value={details.totalFreightCurrency}
-                      onChange={(e) =>
-                        updateDetails('totalFreightCurrency', e.target.value)
-                      }
+                  return (
+                    <SchemaFormField
+                      key={item.key}
+                      fieldKey={item.key}
+                      value={details[field]}
+                      onChange={(v) => setDetailField(field, v)}
+                      error={err(item.key)}
                       disabled={isReadOnly}
-                    >
-                      <option value="PKR">PKR</option>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="field field-flex-1"
-                      placeholder="Amount"
-                      value={details.totalFreightAmount || ''}
-                      onChange={(e) =>
-                        updateDetails('totalFreightAmount', e.target.value)
-                      }
-                      disabled={isReadOnly}
+                      className={col}
+                      placeholder={item.placeholder}
                     />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="label">Carrier</label>
-                  <select
-                    className="field"
-                    value={details.carrier}
-                    onChange={(e) => updateDetails('carrier', e.target.value)}
-                    disabled={isReadOnly}
-                  >
-                    <option value="">-- Select One --</option>
-                    <option value="DTLC">DTLC</option>
-                    <option value="FedEx">FedEx</option>
-                    <option value="DHL">DHL</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Carrier Reference No.</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter reference number"
-                    value={details.carrierReferenceNo}
-                    onChange={(e) =>
-                      updateDetails('carrierReferenceNo', e.target.value)
-                    }
-                    disabled={isReadOnly}
-                  />
-                </div>
-
-                <div>
-                  <label className="label">Departure Time</label>
-                  <input
-                    type="time"
-                    className="field"
-                    value={details.departureTime}
-                    onChange={(e) =>
-                      updateDetails('departureTime', e.target.value)
-                    }
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Origin</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter origin"
-                    value={details.origin}
-                    onChange={(e) => updateDetails('origin', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-
-                <div>
-                  <label className="label">Destination</label>
-                  <input
-                    type="text"
-                    className="field"
-                    placeholder="Enter destination"
-                    value={details.destination}
-                    onChange={(e) =>
-                      updateDetails('destination', e.target.value)
-                    }
-                    required
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Pickup Date</label>
-                  <input
-                    type="date"
-                    className="field"
-                    value={details.pickupDate}
-                    onChange={(e) => updateDetails('pickupDate', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-
-                <div>
-                  <label className="label">Pickup Time</label>
-                  <input
-                    type="time"
-                    className="field"
-                    value={details.pickupTime}
-                    onChange={(e) => updateDetails('pickupTime', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <label className="label">Expected Delivery Date</label>
-                  <input
-                    type="date"
-                    className="field"
-                    value={details.expectedDeliveryDate}
-                    onChange={(e) =>
-                      updateDetails('expectedDeliveryDate', e.target.value)
-                    }
-                    disabled={isReadOnly}
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="label">Comments</label>
-                  <textarea
-                    rows="3"
-                    className="field resize-none"
-                    placeholder="Enter any additional comments..."
-                    value={details.comments}
-                    onChange={(e) => updateDetails('comments', e.target.value)}
-                    disabled={isReadOnly}
-                  ></textarea>
-                </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -471,128 +280,51 @@ export default function ShipmentForm({
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-red-600 text-white">
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Qty.
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Piece Type
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Description
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Length (cm)
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Width (cm)
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Height (cm)
-                  </th>
-                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
-                    Weight (kg)
-                  </th>
+                  {PACKAGE_COLUMNS.map((col) => (
+                    <th
+                      key={col}
+                      className="px-3 py-2.5 text-left font-semibold whitespace-nowrap"
+                    >
+                      {col === 'quantity'
+                        ? 'Qty.'
+                        : col === 'pieceType'
+                          ? 'Piece Type'
+                          : col === 'lengthCm'
+                            ? 'Length (cm)'
+                            : col === 'widthCm'
+                              ? 'Width (cm)'
+                              : col === 'heightCm'
+                                ? 'Height (cm)'
+                                : col === 'weightKg'
+                                  ? 'Weight (kg)'
+                                  : 'Description'}
+                    </th>
+                  ))}
                   <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">
                     Action
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {packages.map((pkg) => (
+                {packages.map((pkg, pkgIndex) => (
                   <tr key={pkg.id} className="border-b border-gray-100">
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        value={pkg.quantity}
-                        min="1"
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'quantity', e.target.value)
-                        }
-                        className="field w-16 text-center"
-                        disabled={isReadOnly}
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <select
-                        value={pkg.pieceType}
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'pieceType', e.target.value)
-                        }
-                        className="field w-28"
-                        disabled={isReadOnly}
-                      >
-                        <option value="">-- Select Type --</option>
-                        <option value="Box">Box</option>
-                        <option value="Envelope">Envelope</option>
-                        <option value="Pallet">Pallet</option>
-                        <option value="Roll">Roll</option>
-                      </select>
-                    </td>
-                    <td className="px-2 py-2">
-                      <textarea
-                        rows="1"
-                        value={pkg.description}
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'description', e.target.value)
-                        }
-                        className="field w-32 resize-none"
-                        disabled={isReadOnly}
-                      ></textarea>
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        value={pkg.lengthCm}
-                        min="0"
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'lengthCm', e.target.value)
-                        }
-                        className="field w-20 text-center"
-                        disabled={isReadOnly}
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        value={pkg.widthCm}
-                        min="0"
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'widthCm', e.target.value)
-                        }
-                        className="field w-20 text-center"
-                        disabled={isReadOnly}
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        value={pkg.heightCm}
-                        min="0"
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'heightCm', e.target.value)
-                        }
-                        className="field w-20 text-center"
-                        disabled={isReadOnly}
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        value={pkg.weightKg}
-                        min="0"
-                        step="0.01"
-                        onChange={(e) =>
-                          updatePackage(pkg.id, 'weightKg', e.target.value)
-                        }
-                        className="field w-20 text-center"
-                        disabled={isReadOnly}
-                      />
-                    </td>
+                    {PACKAGE_COLUMNS.map((col) => (
+                      <td key={col} className="px-2 py-2 align-top">
+                        <SchemaFormField
+                          fieldKey={`packages.${col}`}
+                          value={pkg[col]}
+                          onChange={(v) => setPackageField(pkg.id, col, v, pkgIndex)}
+                          error={err(`packages.${pkgIndex}.${col}`)}
+                          disabled={isReadOnly}
+                          hideLabel
+                          inputClassName={packageInputClass[col]}
+                          emptyOptionLabel="-- Select Type --"
+                        />
+                      </td>
+                    ))}
                     <td className="px-2 py-2">
                       {isReadOnly ? (
-                        <span className="text-[11px] text-gray-400">
-                          Read only
-                        </span>
+                        <span className="text-[11px] text-gray-400">Read only</span>
                       ) : (
                         <button
                           type="button"
@@ -610,10 +342,14 @@ export default function ShipmentForm({
           </div>
 
           <div className="p-4 space-y-3">
+            <ErrorText message={err('packages')} />
             {!isReadOnly && (
               <button
                 type="button"
-                onClick={addPackageRow}
+                onClick={() => {
+                  clearError('packages');
+                  addPackageRow();
+                }}
                 className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors duration-150"
               >
                 + Add Package
@@ -621,15 +357,13 @@ export default function ShipmentForm({
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
               <p className="text-xs text-gray-600">
-                <span className="font-semibold">Total Volumetric Weight:</span>{' '}
-                0.0 kg.
+                <span className="font-semibold">Total Volumetric Weight:</span> 0.0 kg.
               </p>
               <p className="text-xs text-gray-600 text-center">
                 <span className="font-semibold">Total Volume:</span> 0.0 cu. m.
               </p>
               <p className="text-xs text-gray-600 text-right">
-                <span className="font-semibold">Total Actual Weight:</span> 0.0
-                kg.
+                <span className="font-semibold">Total Actual Weight:</span> 0.0 kg.
               </p>
             </div>
           </div>
@@ -642,53 +376,9 @@ export default function ShipmentForm({
               disabled={isSubmitting}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold px-8 py-3 rounded-xl shadow-lg shadow-red-600/20 transition-all duration-200"
             >
-              {isSubmitting ? (
-                <>
-                  <svg
-                    className="w-4 h-4 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
-                  {submitLabel}
-                </>
-              )}
+              {isSubmitting ? 'Saving...' : submitLabel}
             </button>
           )}
-
-          {submitError ? (
-            <p className="text-xs text-red-500 font-medium">{submitError}</p>
-          ) : null}
           {submitSuccess ? (
             <p className="text-xs text-green-600 font-medium">{submitSuccess}</p>
           ) : null}
@@ -697,4 +387,3 @@ export default function ShipmentForm({
     </form>
   );
 }
-

@@ -49,6 +49,7 @@ function normalizeTrackingData(raw) {
 
   return {
     status: String(r.status ?? 'UNKNOWN').toUpperCase(),
+    currentLocation: String(r.currentLocation ?? '').trim(),
     shipper: {
       name: shipperName,
       company: r.shipper?.company ?? '',
@@ -267,7 +268,8 @@ export default function TrackingPage() {
   const infoFields = d ? [
     { label: 'Origin', val: d.info.origin },
     { label: 'Package', val: d.info.package },
-    { label: 'Status', val: d.info.status },
+    { label: 'Status', val: d.info.status || d.status },
+    { label: 'Current Location', val: d.currentLocation || '—' },
     { label: 'Destination', val: d.info.destination },
     { label: 'Carrier', val: d.info.carrier },
     { label: 'Type of Shipment', val: d.info.type },
@@ -381,6 +383,8 @@ export default function TrackingPage() {
                         </div>
 
                         {[
+                          { lbl: 'Status', val: d.status },
+                          { lbl: 'Current Location', val: d.currentLocation || '—' },
                           { lbl: 'Origin', val: d.info.origin },
                           { lbl: 'Destination', val: d.info.destination },
                           { lbl: 'Mode', val: d.info.mode },
@@ -435,9 +439,14 @@ export default function TrackingPage() {
                     </div>
 
                     {/* Status bar */}
-                    <div style={{ padding: '14px 24px', background: '#fef2f2', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', display: 'inline-block', boxShadow: '0 0 8px rgba(220,38,38,0.4)', flexShrink: 0 }}></span>
-                      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#dc2626' }}>SHIPMENT STATUS: {d.status}</span>
+                    <div style={{ padding: '14px 24px', background: '#fef2f2', borderBottom: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', display: 'inline-block', boxShadow: '0 0 8px rgba(220,38,38,0.4)', flexShrink: 0 }}></span>
+                        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#dc2626' }}>SHIPMENT STATUS: {d.status}</span>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>
+                        Current location: <span style={{ color: '#1f2937' }}>{d.currentLocation || 'Not set'}</span>
+                      </span>
                     </div>
 
                     {/* Shipment Information */}

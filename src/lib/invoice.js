@@ -59,6 +59,8 @@ export function normalizeInvoiceData(raw) {
 
   return {
     shipmentNumber: r.shipmentNumber ?? r.trackingNumber ?? r.id ?? r._id ?? '',
+    status: r.status ?? '',
+    currentLocation: r.currentLocation ?? '',
     createdAt: fmtDate(r.createdAt ?? r.date ?? d.pickupDate),
     shipper: {
       name: shipper?.name ?? '',

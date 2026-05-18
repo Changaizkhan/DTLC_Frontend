@@ -19,5 +19,7 @@ export const serverRoutes = {
     update: (shipmentNumber) => `/shipments/${encodeURIComponent(shipmentNumber)}`,
     delete: (shipmentNumber) => `/shipments/${encodeURIComponent(shipmentNumber)}`,
     updateStatus: (shipmentNumber) => `/shipments/${encodeURIComponent(shipmentNumber)}/status`,
+    currentLocation: (shipmentNumber) =>
+      `/shipments/${encodeURIComponent(shipmentNumber)}/current-location`,
   },
 };
